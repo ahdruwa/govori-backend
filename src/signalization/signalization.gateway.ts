@@ -123,13 +123,13 @@ export class SignalizationGateway
 		const room = this.rooms.get(data.roomId);
 		room.iceCandidates.push(data.iceCandidate);
 
-		// room.users.forEach((user) => {
-		// 	if (user !== socket.id) {
-		// 		socket.to(user).emit('ice-candidate', {
-		// 			iceCandidate: data.iceCandidate,
-		// 		});
-		// 	}
-		// });
+		room.users.forEach((user) => {
+			if (user !== socket.id) {
+				socket.to(user).emit('ice-candidate', {
+					iceCandidate: data.iceCandidate,
+				});
+			}
+		});
 	}
 
 	handleDisconnect(socket: Socket) {
