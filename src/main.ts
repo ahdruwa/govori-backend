@@ -8,6 +8,8 @@ async function bootstrap() {
 
 	app.useWebSocketAdapter(new IoAdapter(app));
 
-	await app.listen(3000);
+	const PORT = process.env.PORT;
+
+	await app.listen(PORT || 3000);
 }
 bootstrap();
