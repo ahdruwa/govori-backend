@@ -1,6 +1,5 @@
-type Room = {
-	offer: RTCSessionDescriptionInit;
-	iceCandidates: RTCIceCandidateDictionary[];
+type RoomSchema = {
 	users: string[];
 	owner: string;
+	// peerConnections: RTCPeerConnection[];
 };

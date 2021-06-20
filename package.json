@@ -27,10 +27,17 @@
     "@nestjs/platform-socket.io": "^7.6.15",
     "@nestjs/platform-ws": "^7.6.15",
     "@nestjs/websockets": "^7.6.15",
+    "@typegoose/typegoose": "7.0.0",
+    "@types/mongoose": "5.7.15",
+    "@types/wrtc": "npm:@shynome/types__wrtc@0.0.4",
+    "dotenv": "^10.0.0",
+    "mongoose": "5.9.12",
+    "nestjs-typegoose": "7.1.22",
     "peer": "^0.6.1",
     "reflect-metadata": "^0.1.13",
     "rimraf": "^3.0.2",
-    "rxjs": "^6.6.6"
+    "rxjs": "^6.6.6",
+    "wrtc": "^0.4.7"
   },
   "devDependencies": {
     "@nestjs/cli": "^7.6.0",

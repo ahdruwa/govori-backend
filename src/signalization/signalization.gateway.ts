@@ -11,108 +11,151 @@ import {
 import { LoggerService } from 'src/logger/logger.service';
 import { Server, Socket } from 'socket.io';
 import { CallUserDTO } from './dto/call-user.dto';
-import { MakeAnswerDTO } from './dto/make-answer.dto';
-import { RejectCallDTO } from './dto/reject-call.dto';
 import { IceCandidateDTO } from './dto/ice-candidate.dto';
 import { ConnectRoomAcceptedDTO } from './dto/connect-room-accepted.dto';
 import { ConnectRoomDTO } from './dto/connect-room.dto';
+import { RTCSessionDescription, RTCPeerConnection, MediaStream } from 'wrtc';
+import { Inject } from '@nestjs/common';
+import { RTCPEERCONNECTION } from 'src/tokens';
+import { SignalizationService } from './signalization.service';
 
 @WebSocketGateway({ namespace: 'signalization' })
 export class SignalizationGateway
 	implements OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit
 {
-	constructor(private readonly logger: LoggerService) {}
+	constructor(
+		private readonly logger: LoggerService,
+		private readonly signalizationService: SignalizationService,
+		@Inject(RTCPEERCONNECTION)
+		private PeerConnection: new () => RTCPeerConnection,
+	) {}
 
 	private activeSockets: string[] = [];
-	private rooms: Map<string, Room> = new Map();
+	private rooms: Map<string, RoomSchema> = new Map();
+	private users: Map<string, UserSchema> = new Map();
 
 	@WebSocketServer() server: Server;
 
-	@SubscribeMessage('call-user')
-	handleCall(
-		@MessageBody() data: CallUserDTO,
+	@SubscribeMessage('negotiation')
+	async handleNegotiation(
+		@MessageBody() data: any,
 		@ConnectedSocket() socket: Socket,
-	): void {
-		this.logger.info('user called ' + data.destination);
+	) {
+		this.signalizationService.handleNegotiation(data, socket);
 
-		socket.to(data.destination).emit('call-made', {
-			offer: data.offer,
+		this.logger.info({
+			message: 'Connection negotated',
 			socket: socket.id,
 		});
+	}
+
+	@SubscribeMessage('negotiation-accept')
+	async handleNegotiationAccept(
+		@MessageBody() data: any,
+		@ConnectedSocket() socket: Socket,
+	) {
+		this.signalizationService.handleNegotiationAccept(data, socket);
+
+		this.logger.info({
+			message: 'Connection negotated [server]',
+			socket: socket.id,
+		});
+	}
+
+	@SubscribeMessage('user-list')
+	async handleUserList(@ConnectedSocket() socket: Socket) {
+		try {
+			await this.signalizationService.handleUserList(socket);
+			this.logger.info({
+				message: 'Users fetched',
+				socket: socket.id,
+			});
+		} catch (error) {
+			this.logger.error(error);
+		}
+	}
+
+	@SubscribeMessage('screen-cast')
+	handleScreenCast(
+		@MessageBody() data: any,
+		@ConnectedSocket() socket: Socket,
+	) {
+		const stream = this.signalizationService.handleScreenCast(data, socket);
+
+		this.logger.info({
+			message: 'Screen cast',
+			socket: socket.id,
+			stream: stream,
+		});
+	}
+
+	@SubscribeMessage('remove-track')
+	handleRemoveTrack(
+		@MessageBody() data: any,
+		@ConnectedSocket() socket: Socket,
+	): void {
+		const track = this.signalizationService.handleRemoveTrack(data, socket);
+
+		this.logger.info({
+			message: 'Track removed',
+			socket: socket.id,
+			track: track,
+		});
+	}
+
+	@SubscribeMessage('click')
+	handleClick(
+		@MessageBody() data: any,
+		@ConnectedSocket() socket: Socket,
+	): void {
+		const { userId } = data;
+
+		socket.to(userId).emit('click', data);
+	}
+
+	@SubscribeMessage('keyToggle')
+	hanleKeyToggle(
+		@MessageBody() data: any,
+		@ConnectedSocket() socket: Socket,
+	): void {
+		const { userId } = data;
+
+		socket.to(userId).emit('keytoggle', data);
 	}
 
 	@SubscribeMessage('create-room')
-	handleCreateRoom(
+	async handleCreateRoom(
 		@MessageBody() data: CallUserDTO,
 		@ConnectedSocket() socket: Socket,
-	): void {
-		const roomId = Date.now().toString(10);
+	): Promise<void> {
+		try {
+			const roomId = await this.signalizationService.createRoom(data, socket);
 
-		this.rooms.set(roomId, {
-			offer: data.offer,
-			iceCandidates: [],
-			users: [socket.id],
-			owner: socket.id,
-		});
-
-		socket.emit('room-created', {
-			roomId: roomId,
-		});
-		this.logger.info({
-			message: 'room created',
-			roomId: roomId,
-			socket: socket.id,
-		});
+			this.logger.info({
+				message: 'room created',
+				roomId: roomId,
+				socket: socket.id,
+			});
+		} catch (error) {
+			this.logger.error(error);
+		}
 	}
 
 	@SubscribeMessage('room-connect')
-	handleConnectRoom(
+	async handleConnectRoom(
 		@MessageBody() data: ConnectRoomDTO,
 		@ConnectedSocket() socket: Socket,
-	): void {
-		const room = this.rooms.get(data.roomId);
-		this.rooms.set(data.roomId, room);
+	): Promise<void> {
+		try {
+			await this.signalizationService.handleConnectRoom(data, socket);
 
-		socket.emit('room-connect--accepted', {
-			offer: room.offer,
-			roomId: data.roomId,
-		});
-
-		this.logger.info({
-			message: `User ${socket.id} try connect to room`,
-			roomId: data.roomId,
-		});
-	}
-
-	@SubscribeMessage('room-connect--accepted')
-	handleConnectAcceptedRoom(
-		@MessageBody() data: ConnectRoomAcceptedDTO,
-		@ConnectedSocket() socket: Socket,
-	): void {
-		const room = this.rooms.get(data.roomId);
-		this.rooms.set(data.roomId, room);
-
-		room.users.forEach((user) => {
-			socket.to(user).emit('new-user', {
-				answer: data.answer,
-				user: socket.id,
+			this.logger.info({
+				message: `User ${socket.id} try connect to room`,
+				roomId: data.roomId,
 			});
-		});
-
-		console.log(room.iceCandidates);
-
-		room.iceCandidates.forEach((ic) => {
-			socket.emit('ice-candidate', {
-				iceCandidate: ic,
-			});
-		});
-
-		room.users.push(socket.id);
-
-		this.logger.info({
-			message: `User ${socket.id} connected to room`,
-			roomId: data.roomId,
-		});
+		} catch (error) {
+			this.logger.error(error);
+		}
 	}
 
 	@SubscribeMessage('ice-candidate')
@@ -120,16 +163,7 @@ export class SignalizationGateway
 		@MessageBody() data: IceCandidateDTO,
 		@ConnectedSocket() socket: Socket,
 	): void {
-		const room = this.rooms.get(data.roomId);
-		room.iceCandidates.push(data.iceCandidate);
-
-		room.users.forEach((user) => {
-			if (user !== socket.id) {
-				socket.to(user).emit('ice-candidate', {
-					iceCandidate: data.iceCandidate,
-				});
-			}
-		});
+		this.signalizationService.handleIceCandidate(data, socket);
 	}
 
 	handleDisconnect(socket: Socket) {
@@ -144,24 +178,6 @@ export class SignalizationGateway
 	}
 
 	handleConnection(socket: Socket) {
-		const existingSocket = this.activeSockets.find(
-			(existingSocket) => existingSocket === socket.id,
-		);
-
-		if (!existingSocket) {
-			this.activeSockets.push(socket.id);
-
-			socket.emit('update-user-list', {
-				users: this.activeSockets.filter(
-					(existingSocket) => existingSocket !== socket.id,
-				),
-			});
-
-			socket.broadcast.emit('update-user-list', {
-				users: [socket.id],
-			});
-		}
-
 		this.logger.log(`Client connected: ${socket.id}`);
 	}
 
